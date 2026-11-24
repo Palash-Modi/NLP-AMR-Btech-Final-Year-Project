@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>AMR Command Interface</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 650px;
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 15px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            resize: none;
+            outline: none;
+        }
+
+        textarea:focus {
+            border-color: #666;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            flex: 1;
+            padding: 13px;
+            border: none;
+            border-radius: 8px;
+            background: #222;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #444;
+        }
+
+        button:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+
+        #voiceButton.recording {
+            background: #c62828;
+        }
+
+        .recording-status {
+            text-align: center;
+            margin-top: 12px;
+            color: #c62828;
+            font-weight: bold;
+            display: none;
+        }
+
+        .transcription {
+            margin-top: 20px;
+            padding: 15px;
+            background: #eef3f7;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .transcription-title {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .transcription-text {
+            font-size: 16px;
+            word-wrap: break-word;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f1f3f5;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .result-row {
+            margin-bottom: 15px;
+        }
+
+        .result-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .result-value {
+            font-size: 24px;
+            font-weight: bold;
+            word-wrap: break-word;
+        }
+
+        .status {
+            margin-top: 10px;
+            color: #666;
+        }
+
+        .json-title {
+            margin-top: 18px;
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        pre {
+            margin: 0;
+            padding: 12px;
+            background: #222;
+            color: white;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            .buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>AMR Command Interface</h1>
+
+    <div class="subtitle">
+        Send a natural-language navigation command
+    </div>
+
+    <textarea
+        id="command"
+        placeholder="Example: Take the robot to the kitchen"
+    ></textarea>
+
+    <div class="buttons">
+
+        <button
+            id="voiceButton"
+            onclick="toggleRecording()"
+        >
+            Voice Command
+        </button>
+
+        <button
+            id="sendButton"
+            onclick="sendCommand()"
+        >
+            Send Command
+        </button>
+
+    </div>
+
+    <div
+        class="recording-status"
+        id="recordingStatus"
+    >
+        Recording...
+    </div>
+
+    <div
+        class="transcription"
+        id="transcriptionBox"
+    >
+        <div class="transcription-title">
+            Whisper Transcription
+        </div>
+
+        <div
+            class="transcription-text"
+            id="transcriptionText"
+        >
+            -
+        </div>
+    </div>
+
+    <div
+        class="result"
+        id="result"
+    >
+
+        <div class="result-row">
+
+            <div class="result-label">
+                Extracted Action
+            </div>
+
+            <div
+                class="result-value"
+                id="action"
+            >
+                -
+            </div>
+
+        </div>
+
+        <div class="result-row">
+
+            <div class="result-label">
+                Extracted Destination
+            </div>
+
+            <div
+                class="result-value"
+                id="destination"
+            >
+                -
+            </div>
+
+        </div>
+
+        <div
+            class="status"
+            id="status"
+        ></div>
+
+        <div class="json-title">
+            Model JSON Output
+        </div>
+
+        <pre id="jsonOutput">{}</pre>
+
+    </div>
+
+</div>
+
+<script>
+
+    const API_URL = "http://127.0.0.1:8000";
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+
+    async function toggleRecording() {
+
+        if (!isRecording) {
+            await startRecording();
+        } else {
+            stopRecording();
+        }
+    }
+
+
+    async function startRecording() {
+
+        const voiceButton =
+            document.getElementById("voiceButton");
+
+        try {
+
+            // The browser asks for microphone permission here
+            const stream =
+                await navigator.mediaDevices.getUserMedia({
+                    audio: true
+                });
+
+            audioChunks = [];
+
+            mediaRecorder =
+                new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = function(event) {
+
+                if (event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = function() {
+
+                stream
+                    .getTracks()
+                    .forEach(track => track.stop());
+
+                const audioBlob =
+                    new Blob(
+                        audioChunks,
+                        {
+                            type: "audio/webm"
+                        }
+                    );
+
+                sendAudioToWhisper(audioBlob);
+            };
+
+            mediaRecorder.start();
+
+            isRecording = true;
+
+            voiceButton.classList.add("recording");
+            voiceButton.innerText = "Stop Recording";
+
+            document
+                .getElementById("recordingStatus")
+                .style.display = "block";
+
+        } catch (error) {
+
+            console.error(error);
+
+            if (error.name === "NotAllowedError") {
+
+                alert(
+                    "Microphone access was denied. " +
+                    "Please click Allow when the browser asks for microphone permission."
+                );
+
+            } else if (error.name === "NotFoundError") {
+
+                alert(
+                    "No microphone was found on this device."
+                );
+
+            } else {
+
+                alert(
+                    "Could not access the microphone. " +
+                    error.message
+                );
+            }
+        }
+    }
+
+
+    function stopRecording() {
+
+        if (
+            mediaRecorder &&
+            mediaRecorder.state !== "inactive"
+        ) {
+            mediaRecorder.stop();
+        }
+
+        isRecording = false;
+
+        const voiceButton =
+            document.getElementById("voiceButton");
+
+        voiceButton.classList.remove("recording");
+        voiceButton.innerText = "Voice Command";
+
+        document
+            .getElementById("recordingStatus")
+            .style.display = "none";
+    }
+
+
+    async function sendAudioToWhisper(audioBlob) {
+
+        const voiceButton =
+            document.getElementById("voiceButton");
+
+        voiceButton.disabled = true;
+        voiceButton.innerText = "Transcribing...";
+
+        const formData = new FormData();
+
+        formData.append(
+            "file",
+            audioBlob,
+            "voice_command.webm"
+        );
+
+        try {
+
+            const response =
+                await fetch(
+                    `${API_URL}/transcribe`,
+                    {
+                        method: "POST",
+                        body: formData
+                    }
+                );
+
+            const contentType =
+                response.headers.get("content-type") || "";
+
+            if (!contentType.includes("application/json")) {
+
+                throw new Error(
+                    "FastAPI did not return JSON."
+                );
+            }
+
+            const data =
+                await response.json();
+
+            if (!response.ok) {
+
+                throw new Error(
+                    data.detail ||
+                    "Transcription failed"
+                );
+            }
+
+            document
+                .getElementById("command")
+                .value = data.text;
+
+            document
+                .getElementById("transcriptionBox")
+                .style.display = "block";
+
+            document
+                .getElementById("transcriptionText")
+                .innerText = data.text;
+
+        } catch (error) {
+
+            console.error(error);
+
+            alert(
+                "Whisper transcription failed: " +
+                error.message
+            );
+        }
+
+        voiceButton.disabled = false;
+        voiceButton.innerText = "Voice Command";
+    }
+
+
+    async function sendCommand() {
+
+        const command =
+            document
+                .getElementById("command")
+                .value
+                .trim();
+
+        const button =
+            document.getElementById("sendButton");
+
+        if (!command) {
+
+            alert(
+                "Please enter or record a command."
+            );
+
+            return;
+        }
+
+        button.disabled = true;
+        button.innerText = "Processing...";
+
+        try {
+
+            const response =
+                await fetch(
+                    `${API_URL}/send-command`,
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body: JSON.stringify({
+                            text: command
+                        })
+                    }
+                );
+
+            const contentType =
+                response.headers.get("content-type") || "";
+
+            if (!contentType.includes("application/json")) {
+
+                throw new Error(
+                    "FastAPI did not return JSON. " +
+                    "Make sure FastAPI is running on port 8000."
+                );
+            }
+
+            const data =
+                await response.json();
+
+            document
+                .getElementById("result")
+                .style.display = "block";
+
+            if (response.ok) {
+
+                document
+                    .getElementById("action")
+                    .innerText =
+                    data.action || "none";
+
+                document
+                    .getElementById("destination")
+                    .innerText =
+                    data.destination || "none";
+
+                document
+                    .getElementById("status")
+                    .innerText =
+                    "Command processed successfully.";
+
+                document
+                    .getElementById("jsonOutput")
+                    .innerText =
+                    JSON.stringify(
+                        data,
+                        null,
+                        2
+                    );
+
+            } else {
+
+                document
+                    .getElementById("action")
+                    .innerText = "Error";
+
+                document
+                    .getElementById("destination")
+                    .innerText = "Error";
+
+                document
+                    .getElementById("status")
+                    .innerText =
+                    typeof data.detail === "string"
+                        ? data.detail
+                        : JSON.stringify(data.detail);
+
+                document
+                    .getElementById("jsonOutput")
+                    .innerText =
+                    JSON.stringify(
+                        data,
+                        null,
+                        2
+                    );
+            }
+
+        } catch (error) {
+
+            console.error(error);
+
+            document
+                .getElementById("result")
+                .style.display = "block";
+
+            document
+                .getElementById("action")
+                .innerText = "Error";
+
+            document
+                .getElementById("destination")
+                .innerText = "Error";
+
+            document
+                .getElementById("status")
+                .innerText =
+                error.message ||
+                "Could not connect to FastAPI.";
+
+            document
+                .getElementById("jsonOutput")
+                .innerText =
+                JSON.stringify(
+                    {
+                        error: error.message
+                    },
+                    null,
+                    2
+                );
+        }
+
+        button.disabled = false;
+        button.innerText = "Send Command";
+    }
+
+</script>
+
+</body>
+
+</html>
